@@ -1,8 +1,10 @@
 using DelimitedFiles
 using Distributions
 using StatsBase
+using PyCall
 
-# An implementation of Environment REQUIRES: state, observation_space, action_space
+# An implementation of Environment REQUIRES multiple dispatch implementations of:
+# step!, reset!, state, action_space, observation_space
 abstract type Environment end
 abstract type Space end
 
@@ -14,6 +16,7 @@ struct ContinuousSpace
     size::Array{Tuple{Float32, Float32}}
 end
 
+# Racetrack environment definition (from Sutton chapter 5 page 112)
 mutable struct Racetrack <: Environment
     track::Matrix{Int32}
     width::Int32
@@ -51,6 +54,18 @@ function Racetrack(file::String)
     return Racetrack(track, width, height,
                      DiscreteSpace([7]), DiscreteSpace([width, height, 6, 6]),
                      [start_coords[1], start_coords[2], 1, 1], start_coords, action_mapping)
+end
+
+function state(env::Racetrack)
+    return env.state
+end
+
+function action_space(env::Racetrack)
+    return env.action_space
+end
+
+function observation_space(env::Racetrack)
+    return env.observation_space
 end
 
 function reset!(env::Racetrack)
@@ -92,5 +107,97 @@ function step!(env::Racetrack, action)
 
     done = reward > 0
     env.state = [nx, ny, nvx, nvy]
+    return env.state, reward, done
+end
+
+# Cartpole env definition (uses OpenAI gym)
+# observation space is discretized in our layer (backend is continious)
+mutable struct DiscreteCartpole <: Environment
+    action_space::DiscreteSpace
+    observation_space::DiscreteSpace
+    num_bins::Int64
+    theta_dot_min::Float64
+    theta_dot_max::Float64
+    x_dot_min::Float64
+    x_dot_max::Float64
+    state::Array{Int32}
+end
+
+function DiscreteCartpole(num_bins::Int64)
+    py"""
+    import gym
+    env = gym.make('CartPole-v1')
+
+    def cart_reset():
+        return env.reset()
+
+    def cart_step(action):
+        observation, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
+        return (observation, reward, done)
+    """
+    theta_dot_lim = 1.0
+    v_dot_lim = 0.6
+    return DiscreteCartpole(DiscreteSpace([2]),
+                            DiscreteSpace([num_bins,num_bins,num_bins,num_bins]),
+                            num_bins, -theta_dot_lim, theta_dot_lim, -v_dot_lim, v_dot_lim,
+                            [1,1,1,1])
+end
+
+function state(env::DiscreteCartpole)
+    return env.state
+end
+
+function action_space(env::DiscreteCartpole)
+    return env.action_space
+end
+
+function observation_space(env::DiscreteCartpole)
+    return env.observation_space
+end
+
+# there is no way on earth this is the right way to do this
+# but I couldn't find a more effecient way
+function discretize(value, min, max, bins)
+    range = abs(max - min)
+    stride = range / bins
+
+    value < max || return bins
+    value > min || return 1
+
+    low_border = min
+    high_border = min + stride
+    for b in 1:bins
+        if value > low_border && value < high_border
+            return b
+        end
+        low_border += stride
+        high_border += stride
+    end
+
+    return bins
+end
+
+function observation_to_state(env::DiscreteCartpole, observation)
+    state = [0, 0, 0, 0]
+    state[1] = discretize(observation[1], -4.8, 4.8, env.num_bins)
+    state[2] = discretize(observation[2], env.x_dot_min, env.x_dot_max, env.num_bins)
+    state[3] = discretize(observation[3], -0.418, 0.418, env.num_bins)
+    state[4] = discretize(observation[4], env.theta_dot_min, env.theta_dot_max, env.num_bins)
+    return state
+end
+
+function reset!(env::DiscreteCartpole)
+    observation = py"cart_reset"()
+    observation = observation[1]
+    env.state = observation_to_state(env, observation)
+end
+
+function step!(env::DiscreteCartpole, action)
+    py_action = action - 1
+    observation, reward, done = py"cart_step"(py_action)
+
+    env.state = observation_to_state(env, observation)
+
     return env.state, reward, done
 end

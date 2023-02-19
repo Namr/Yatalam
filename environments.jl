@@ -1,6 +1,8 @@
+using DelimitedFiles
 using Distributions
 using StatsBase
 
+# An implementation of Environment REQUIRES: state, observation_space, action_space
 abstract type Environment end
 abstract type Space end
 
@@ -12,7 +14,7 @@ struct ContinuousSpace
     size::Array{Tuple{Float32, Float32}}
 end
 
-struct Racetrack
+mutable struct Racetrack <: Environment
     track::Matrix{Int32}
     width::Int32
     height::Int32
@@ -25,7 +27,7 @@ end
 
 function Racetrack(file::String)
     track = []
-    open(filepath) do rt
+    open(file) do rt
         track = readdlm(rt, ',', Int8)
     end
 
@@ -46,15 +48,19 @@ function Racetrack(file::String)
     end
 
     action_mapping = [(0,0), (-1, 0), (1, 0), (0, -1), (0, 1), (1, 1), (-1, -1)]
-    return RaceTrack(track, width, height,
+    return Racetrack(track, width, height,
                      DiscreteSpace([7]), DiscreteSpace([width, height, 6, 6]),
                      [start_coords[1], start_coords[2], 1, 1], start_coords, action_mapping)
 end
 
+function reset!(env::Racetrack)
+    env.state = [env.start_coords[1], env.start_coords[2], 1, 2]
+end
+
 function step!(env::Racetrack, action)
     x, y, vx, vy = env.state
-    nx = x + vx
-    ny = y + vy
+    nx = x + vx - 1
+    ny = y + vy - 1
     nvx = vx + env.action_mapping[action][1]
     nvy = vy + env.action_mapping[action][2]
     reward = -1
@@ -63,26 +69,28 @@ function step!(env::Racetrack, action)
     if nx > env.width || ny > env.height || nx < 1 || ny < 1
         nx = env.start_coords[1]
         ny = env.start_coords[2]
-        nvx = 0
-        nvy = 0
+        nvx = 1
+        nvy = 1
         reward = -10
-    elseif racetrack[nx, ny] == 1
+    elseif env.track[nx, ny] == 1
         nx = env.start_coords[1]
         ny = env.start_coords[2]
-        nvx = 0
-        nvy = 0
+        nvx = 1
+        nvy = 1
         reward = -10
     end
 
     # can't go negative speed
-    nvx > 0 || (nvx = 0)
-    nvy > 0 || (nvy = 0)
+    nvx > 1 || (nvx = 1)
+    nvy > 1 || (nvy = 1)
 
     # can't go too fast
     nvx < 5 || (nvx = 5)
     nvy < 5 || (nvy = 5)
 
-    racetrack[nx, ny] != 2 || (reward = 200.0)
+    env.track[nx, ny] != 2 || (reward = 200.0)
 
-    return (nx, ny, nvx, nvy), reward
+    done = reward > 0
+    env.state = [nx, ny, nvx, nvy]
+    return env.state, reward, done
 end

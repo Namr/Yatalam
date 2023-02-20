@@ -136,8 +136,8 @@ function DiscreteCartpole(num_bins::Int64)
         done = terminated or truncated
         return (observation, reward, done)
     """
-    theta_dot_lim = 1.0
-    v_dot_lim = 0.6
+    theta_dot_lim = 3.5
+    v_dot_lim = 2
     return DiscreteCartpole(DiscreteSpace([2]),
                             DiscreteSpace([num_bins,num_bins,num_bins,num_bins]),
                             num_bins, -theta_dot_lim, theta_dot_lim, -v_dot_lim, v_dot_lim,
@@ -180,9 +180,9 @@ end
 
 function observation_to_state(env::DiscreteCartpole, observation)
     state = [0, 0, 0, 0]
-    state[1] = discretize(observation[1], -4.8, 4.8, env.num_bins)
+    state[1] = discretize(observation[1], -2.4, 2.4, env.num_bins)
     state[2] = discretize(observation[2], env.x_dot_min, env.x_dot_max, env.num_bins)
-    state[3] = discretize(observation[3], -0.418, 0.418, env.num_bins)
+    state[3] = discretize(observation[3], -0.218, 0.218, env.num_bins)
     state[4] = discretize(observation[4], env.theta_dot_min, env.theta_dot_max, env.num_bins)
     return state
 end
@@ -196,6 +196,8 @@ end
 function step!(env::DiscreteCartpole, action)
     py_action = action - 1
     observation, reward, done = py"cart_step"(py_action)
+
+    !done || (reward = -100)
 
     env.state = observation_to_state(env, observation)
 

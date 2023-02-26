@@ -71,8 +71,7 @@ function tabular_montecarlo_control(env::Environment, iters=100, gamma=1.0, ep=0
             value = (value * gamma) + reward
             # is this the first visit?
             if seen[state_to_index(s), action] == t
-                N[state_to_index(s), action] += 1.0
-                # update Q towards the seen value of that action state pair
+                N[state_to_index(s), action] += 1.0 # update Q towards the seen value of that action state pair
                 Q[state_to_index(s), action] += (value - Q[state_to_index(s), action]) / N[state_to_index(s), action]
 
                 # update policy to be max of Q
@@ -100,7 +99,7 @@ function tabular_montecarlo_control(env::Environment, iters=100, gamma=1.0, ep=0
     return values
 end
 
-function tabular_sarsa_control(env::Environment, alpha=0.2, iters=100, gamma=1.0, ep=0.3)
+function tabular_sarsa_control(env::Environment, alpha=0.2, steps=1000, gamma=1.0, ep=0.3)
     values = []
 
     # init a policy table [state, action] -> probability of action in state
@@ -134,52 +133,59 @@ function tabular_sarsa_control(env::Environment, alpha=0.2, iters=100, gamma=1.0
     # table to keep track of value of state-action pairs
     Q = zeros(Float64, states, actions)
 
-    # TODO: there should be no outer loop of SARSA (doesn't need terminated episodes)
-    for i in 1:iters
-        value = 0
-        reset!(env)
-        # we assume an action has already been taken before each loop of SARSA
-        action = use_policy(state(env))
-        s = copy(state(env))
-        while true
-            # take another action and call the new state s_prime
-            s_prime, reward, done = step!(env, action)
-            value += reward
-            a_prime = use_policy(s_prime)
+    step = 0
+    value = 0
+    reset!(env)
+    # we assume an action has already been taken before each loop of SARSA
+    action = use_policy(state(env))
+    s = copy(state(env))
+    while true
+        # take another action and call the new state s_prime
+        s_prime, reward, done = step!(env, action)
+        value += reward
+        a_prime = use_policy(s_prime)
 
-            # SARSA update
-            Q[state_to_index(s), action] += alpha * (reward +
-                (gamma * Q[state_to_index(s_prime), a_prime]) - Q[state_to_index(s), action])
+        # SARSA update
+        Q[state_to_index(s), action] += alpha * (reward +
+            (gamma * Q[state_to_index(s_prime), a_prime]) - Q[state_to_index(s), action])
 
-            # update policy according to new value information
-            # find best action in original state (pre-SARSA update)
-            val, oa = findmax(Q[state_to_index(s), :])
+        # update policy according to new value information
+        # find best action in original state (pre-SARSA update)
+        val, oa = findmax(Q[state_to_index(s), :])
 
-            for a in 1:actions
-                if a == oa
-                    policy[state_to_index(s), a] = 1 - ep + (ep/actions)
-                else
-                    policy[state_to_index(s), a] = ep/actions
-                end
+        for a in 1:actions
+            if a == oa
+                policy[state_to_index(s), a] = 1 - ep + (ep/actions)
+            else
+                policy[state_to_index(s), a] = ep/actions
             end
-
-            # we already know what action and state are next to we can set them here
-            s = s_prime
-            action = a_prime
-
-            !done || break
         end
 
-        append!(values, value)
-        print("*")
-        flush(stdout)
+        # we already know what action and state are next to we can set them here
+        s = s_prime
+        action = a_prime
+
+        step += 1
+
+        if done
+            append!(values, value)
+            print("*")
+            flush(stdout)
+
+            value = 0
+            reset!(env)
+            action = use_policy(state(env))
+            s = copy(state(env))
+        end
+
+        step < steps || break
     end
 
     return values
 end
 
 
-function tabular_Qlearning(env::Environment, alpha=0.2, iters=100, gamma=1.0, ep=0.3)
+function tabular_Qlearning(env::Environment, alpha=0.2, steps=1000, gamma=1.0, ep=0.3)
     values = []
 
     # init a policy table [state, action] -> probability of action in state
@@ -213,48 +219,53 @@ function tabular_Qlearning(env::Environment, alpha=0.2, iters=100, gamma=1.0, ep
     # table to keep track of value of state-action pairs
     Q = zeros(Float64, states, actions)
 
-    # TODO: there should be no outer loop of SARSA (doesn't need terminated episodes)
-    for i in 1:iters
-        value = 0
+    step = 0
+    value = 0
+    reset!(env)
+    # we assume an action has already been taken before each loop of SARSA
+    action = use_policy(state(env))
+    s = copy(state(env))
+    while true
+        # take another action and call the new state s_prime
+        s_prime, reward, done = step!(env, action)
+        value += reward
+        a_prime = use_policy(s_prime)
 
-        reset!(env)
-        # we assume an action has already been taken before each loop of SARSA
-        action = use_policy(state(env))
-        s = copy(state(env))
-        while true
+        # SARSA update
+        maxQ, oa = findmax(Q[state_to_index(s_prime), :])
+        Q[state_to_index(s), action] += alpha * (reward +
+                        (gamma * maxQ - Q[state_to_index(s), action]))
 
-            # take another action and call the new state s_prime
-            s_prime, reward, done = step!(env, action)
-            value += reward
-            a_prime = use_policy(s_prime)
+        # update policy according to new value information
+        # find best action in original state (pre-SARSA update)
+        val, oa = findmax(Q[state_to_index(s), :])
 
-            # SARSA update
-            maxQ, oa = findmax(Q[state_to_index(s_prime), :])
-            Q[state_to_index(s), action] += alpha * (reward +
-                            (gamma * maxQ - Q[state_to_index(s), action]))
-
-            # update policy according to new value information
-            # find best action in original state (pre-SARSA update)
-            val, oa = findmax(Q[state_to_index(s), :])
-
-            for a in 1:actions
-                if a == oa
-                    policy[state_to_index(s), a] = 1 - ep + (ep/actions)
-                else
-                    policy[state_to_index(s), a] = ep/actions
-                end
+        for a in 1:actions
+            if a == oa
+                policy[state_to_index(s), a] = 1 - ep + (ep/actions)
+            else
+                policy[state_to_index(s), a] = ep/actions
             end
-
-            # we already know what action and state are next to we can set them here
-            s = s_prime
-            action = a_prime
-
-            !done || break
         end
 
-        append!(values, value)
-        print("*")
-        flush(stdout)
+        # we already know what action and state are next to we can set them here
+        s = s_prime
+        action = a_prime
+
+        step += 1
+
+        if done
+            append!(values, value)
+            print("*")
+            flush(stdout)
+
+            value = 0
+            reset!(env)
+            action = use_policy(state(env))
+            s = copy(state(env))
+        end
+
+        step < steps || break
     end
 
     return values

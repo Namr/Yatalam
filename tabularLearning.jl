@@ -30,7 +30,7 @@ function tabular_montecarlo_control(env::Environment, iters=100, gamma=1.0, ep=0
         return i
     end
 
-    use_policy(s) = sample(1:actions, Weights(policy[state_to_index(s),:]))
+    use_policy(s) = StatsBase.sample(1:actions, Weights(policy[state_to_index(s),:]))
 
     # tables to keep track of value of state-action pairs
     # and the # of times they have been visited
@@ -128,7 +128,7 @@ function tabular_sarsa_control(env::Environment, alpha=0.2, steps=1000, gamma=1.
         return i
     end
 
-    use_policy(s) = sample(1:actions, Weights(policy[state_to_index(s),:]))
+    use_policy(s) = StatsBase.sample(1:actions, Weights(policy[state_to_index(s),:]))
 
     # table to keep track of value of state-action pairs
     Q = zeros(Float64, states, actions)
@@ -214,7 +214,7 @@ function tabular_Qlearning(env::Environment, alpha=0.2, steps=1000, gamma=1.0, e
         return i
     end
 
-    use_policy(s) = sample(1:actions, Weights(policy[state_to_index(s),:]))
+    use_policy(s) = StatsBase.sample(1:actions, Weights(policy[state_to_index(s),:]))
 
     # table to keep track of value of state-action pairs
     Q = zeros(Float64, states, actions)

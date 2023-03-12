@@ -11,8 +11,9 @@ function deep_Qlearning(env::Environment, steps=5000, batch_size=64, ep=0.3)
     inputs = actions + states
 
     Q = Chain(
-            Dense(inputs => 64, tanh),
+            Dense(inputs => 64, sigmoid),
             Dense(64 => 128, relu),
+            Dense(128 => 128, relu),
             Dense(128 => 1, relu)
              )
 

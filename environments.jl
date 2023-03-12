@@ -254,8 +254,7 @@ function step!(env::Cartpole, action)
     observation, reward, done = py"cart_step"(py_action)
 
     !done || (reward = -100)
-
-    env.state = observation
+    env.state = [clamp(observation[1], -2.4, 2.4), clamp(observation[2], -2, 2), clamp(observation[3], -0.218, 0.218), clamp(observation[4], -3.5, 3.5)]
 
     return env.state, reward, done
 end

@@ -3,62 +3,29 @@ using StatsBase
 using LinearAlgebra
 
 # Tile coding implementation adapted from Dr. Sutton's implementation on his website
-mutable struct IHT
-    size::Int64
-    overfullCount::Int64
-    dictionary::Dict
-end
+function tile_coding_feature_selector(tiles_per_dim, value_limits, tilings)
+  offset(n) = 2 * collect(0:n-1) .+ 1
+  tiling_dims = ceil.(tiles_per_dim) .+ 1
 
-function IHT(size)
-    return IHT(size, 0, Dict())
-end
-
-function getindex(iht::IHT, obj, readonly=false)
-    if haskey(iht.dictionary, obj)
-        return iht.dictionary[obj]
-    elseif readonly
-        return nothing
+  # Spain with no S
+  offsets = (offset(length(tiles_per_dim)) .* repeat(collect(0:tilings-1), outer=(1,length(tiles_per_dim)))' )' ./ Float64(tilings) .% 1
+  norm_dims = tiles_per_dim ./ (value_limits[2, :] - value_limits[1, :])
+  tile_base_ind = prod(tiling_dims) * collect(0:tilings-1)
+  hash_vec = [prod(tiling_dims[1:i]) for i in 0:length(tiles_per_dim)-1]
+  n_tiles = tilings * prod(tiling_dims)
+  println(n_tiles)
+  feature_selector(state, action) = begin
+    x = [state; action]
+    off_coords = trunc.(Int32, ((x .- value_limits[1,:]) .* norm_dims .+ offsets')')
+    binary = tile_base_ind .+ (off_coords * hash_vec)
+    s = zeros(Float64, n_tiles)
+    for b in binary
+      s[b] = 1
     end
+    return s
+  end
 
-    count = length(iht.dictionary)
-    if count >= iht.size
-        iht.overfullCount += 1
-        return hash(obj) % iht.size
-    else
-        iht.dictionary[obj] = count
-        return count
-    end
-end
-
-function hashcoords(iht::IHT, coords, readonly=false)
-    return getindex(iht, coords, readonly)
-end
-
-function tiles(iht::IHT, numtilings, floatinputs, intinputs=[], readonly=false)
-    qfloats = [floor(f*numtilings) for f in floatinputs]
-    Tiles = []
-    for tiling in 1:numtilings
-        coords = [tiling]
-        b = tiling
-        for q in qfloats
-            append!(coords, div(q+b, numtilings))
-            b += tiling * 2
-        end
-        coords = [coords; intinputs]
-        append!(Tiles, hashcoords(iht, coords, readonly))
-    end
-
-    return Tiles
-end
-
-function tile_coding_feature_selector(numtiles, size, scale=1.0)
-    iht = IHT(size)
-
-    feature_selector(state, action) = begin
-        return tiles(iht, numtiles, state * scale, action, false)
-    end
-
-    return feature_selector
+  return feature_selector
 end
 
 function rbf_feature_selector(input_min, input_max, gamma_min, gamma_max, feature_count)
@@ -103,16 +70,10 @@ function linear_montecarlo_control(env::Environment, feature_selector, alpha=0.2
             maxv = -1000000
             maxa = 1
             action_weight = [ep/actions for a in 1:actions]
-            for a in 1:actions
-                v = transpose(w) * feature_selector(state(env), a)
-                if v > maxv
-                    maxv = v
-                    maxa = a
-                end
-            end
-            action_weight[maxa] = 1.0 - ep + (ep/actions)
+            Q = [transpose(w) * feature_selector(state(env), a) for a in 1:actions]
+            oa = argmax(Q)
+            action_weight[oa] = 1.0 - ep + (ep/actions)
             action = StatsBase.sample(1:actions, Weights(action_weight))
-            #println("$action $action_weight $actions")
 
             s, reward, done = step!(env, action)
             history[step] = (s, action, reward)
@@ -152,17 +113,10 @@ function linear_sarsa_control(env::Environment, feature_selector, alpha=0.2, ste
     w = ones(Float64, params)
 
     use_policy(s) = begin
-        maxv = -1000000
-        maxa = 1
         action_weight = [ep/actions for a in 1:actions]
-        for a in 1:actions
-            v = transpose(w) * feature_selector(state(env), a)
-            if v > maxv
-                maxv = v
-                maxa = a
-            end
-        end
-        action_weight[maxa] = 1.0 - ep + (ep/actions)
+        Q = [transpose(w) * feature_selector(s, a) for a in 1:actions]
+        oa = argmax(Q)
+        action_weight[oa] = 1.0 - ep + (ep/actions)
         action = StatsBase.sample(1:actions, Weights(action_weight))
         return action
     end
@@ -216,17 +170,10 @@ function linear_Qlearning(env::Environment, feature_selector, alpha=0.2, steps=1
     w = ones(Float64, params)
 
     use_policy(s) = begin
-        maxv = -1000000
-        maxa = 1
         action_weight = [ep/actions for a in 1:actions]
-        for a in 1:actions
-            v = transpose(w) * feature_selector(state(env), a)
-            if v > maxv
-                maxv = v
-                maxa = a
-            end
-        end
-        action_weight[maxa] = 1.0 - ep + (ep/actions)
+        Q = [transpose(w) * feature_selector(s,a) for a in 1:actions]
+        oa = argmax(Q)
+        action_weight[oa] = 1.0 - ep + (ep/actions)
         action = StatsBase.sample(1:actions, Weights(action_weight))
         return action
     end
@@ -249,7 +196,7 @@ function linear_Qlearning(env::Environment, feature_selector, alpha=0.2, steps=1
 
         maxv = -1000000
         for a in 1:actions
-            v = transpose(w) * feature_selector(state(env), a)
+            v = transpose(w) * feature_selector(s_prime, a)
             if v > maxv
                 maxv = v
             end
@@ -270,6 +217,7 @@ function linear_Qlearning(env::Environment, feature_selector, alpha=0.2, steps=1
             reset!(env)
             action = use_policy(state(env))
             s = copy(state(env))
+            #ep *= 0.9
         end
 
         step < steps || break

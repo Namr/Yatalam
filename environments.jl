@@ -203,3 +203,58 @@ function step!(env::DiscreteCartpole, action)
 
     return env.state, reward, done
 end
+
+
+mutable struct Cartpole <: Environment
+    action_space::DiscreteSpace
+    observation_space::ContinuousSpace
+    state::Array{Float64}
+end
+
+function Cartpole()
+    py"""
+    import gym
+    env = gym.make('CartPole-v1')
+
+    def cart_reset():
+        return env.reset()
+
+    def cart_step(action):
+        observation, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
+        return (observation, reward, done)
+    """
+    theta_dot_lim = 3.5
+    v_dot_lim = 2
+    return Cartpole(DiscreteSpace([2]),
+                    ContinuousSpace([(-2.4, 2.4),(-v_dot_lim, v_dot_lim),(-0.218, 0.218),(-theta_dot_lim, theta_dot_lim)]),
+                    [0.0,0.0,0.0,0.0])
+end
+
+function state(env::Cartpole)
+    return env.state
+end
+
+function action_space(env::Cartpole)
+    return env.action_space
+end
+
+function observation_space(env::Cartpole)
+    return env.observation_space
+end
+
+function reset!(env::Cartpole)
+    observation = py"cart_reset"()
+    observation = observation[1]
+    env.state = observation
+end
+
+function step!(env::Cartpole, action)
+    py_action = action - 1
+    observation, reward, done = py"cart_step"(py_action)
+
+    !done || (reward = -100)
+    env.state = [clamp(observation[1], -2.4, 2.4), clamp(observation[2], -2, 2), clamp(observation[3], -0.218, 0.218), clamp(observation[4], -3.5, 3.5)]
+
+    return env.state, reward, done
+end
